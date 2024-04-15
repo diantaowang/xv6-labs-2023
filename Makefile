@@ -188,6 +188,14 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
+	$U/_sleep\
+	$U/_fork_test\
+	$U/_exec_test\
+	$U/_write_test\
+	$U/_fd_test\
+	$U/_pipe_test\
+	$U/_pingpong\
+	$U/_primes\
 
 
 
