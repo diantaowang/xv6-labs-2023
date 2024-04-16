@@ -196,6 +196,8 @@ UPROGS=\
 	$U/_pipe_test\
 	$U/_pingpong\
 	$U/_primes\
+	$U/_find\
+	$U/_xargs\
 
 
 
