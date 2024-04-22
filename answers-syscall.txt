@@ -1,0 +1,6 @@
+usertrap
+7 SYS_exec
+User mode
+00002683  lw a3,0(zero) # 0 <_entry-0x80000000>; a3
+PTE invalid (unmapped virtual address in kernel); Load page fault
+initcode, pid=1 
