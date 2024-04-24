@@ -69,12 +69,42 @@ sys_sleep(void)
   return 0;
 }
 
-
 #ifdef LAB_PGTBL
-int
+uint64
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 baseaddr, abits;
+  int npage, mask;
+  struct proc *p = myproc();
+
+  argaddr(0, &baseaddr);
+  argint(1, &npage);
+  argaddr(2, &abits);
+
+  if (npage > 64) {
+    panic("sys_pgaccess: query too much page");
+    return -1;
+  }
+
+  mask = 0;
+  for (int i = 0; i < npage; ++i) {
+    pte_t *pte = walk(p->pagetable, baseaddr, 0);
+    if (!pte)
+      return -1;
+    if (*pte & PTE_A) {
+      mask |= 1 << i;
+      *pte &= ~PTE_A;
+    }
+    baseaddr += PGSIZE;
+  }
+
+  uint64 pa = walkaddr(p->pagetable, abits);
+  if (!pa)
+    return -1;
+  uint64 *paddr = (uint64 *) (pa | (abits & 0xFFF));
+  *paddr = mask;
+
   return 0;
 }
 #endif
