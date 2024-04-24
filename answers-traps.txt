@@ -1,0 +1,11 @@
+a0 holds the address of the format string; a1 holds the argument 12, a2 holds the argument 13.
+
+nothing, the function call is optimized away by compiler.
+
+0x642
+
+0x38
+
+"HE110 World"; set i as 0x726c6400; yes, we need.
+
+same value as the value of register a2 when calling printf.
