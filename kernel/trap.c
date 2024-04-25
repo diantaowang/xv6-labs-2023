@@ -80,6 +80,18 @@ usertrap(void)
   if(which_dev == 2)
     yield();
 
+  if (which_dev == 2 && p->period && p->handler) {
+    acquire(&p->lock);
+    p->remaining--;
+    release(&p->lock);
+    if (!p->remaining) {
+       
+      acquire(&p->lock);
+      p->remaining = p->period;
+      release(&p->lock);
+    }
+  }   
+
   usertrapret();
 }
 
