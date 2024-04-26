@@ -97,14 +97,16 @@ uint64
 sys_sigalarm(void)
 {
   struct proc *p = myproc();
-  int period;
+  int interval;
   uint64 handler;
-  argint(0, &period);
+  argint(0, &interval);
   argaddr(1, &handler);
+
   acquire(&p->lock);
-  p->period = period;
-  p->handler = (uint64 *)handler;
-  p->remaining = period;
+  p->interval = interval;
+  p->handler = (void (*)(void))handler;
+  p->ticks = interval;
+  p->handling = 0;
   release(&p->lock);
   return 0;
 }
@@ -112,5 +114,11 @@ sys_sigalarm(void)
 uint64
 sys_sigreturn(void)
 {
-  return 0;
+  struct proc *p = myproc();
+  acquire(&p->lock);
+  p->handling = 0;
+  *p->trapframe = *p->handlerframe;
+  memset(p->handlerframe, 5, sizeof(struct trapframe)); // fill with junk
+  release(&p->lock);
+  return p->trapframe->a0;
 }

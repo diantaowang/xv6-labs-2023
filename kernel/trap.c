@@ -76,21 +76,21 @@ usertrap(void)
   if(killed(p))
     exit(-1);
 
+  if (which_dev == 2 && p->interval) {
+    acquire(&p->lock);
+    p->ticks--;
+    if (p->ticks <= 0 && !p->handling) {
+      p->ticks = p->interval;
+      p->handling = 1;
+      *(p->handlerframe) = *(p->trapframe);
+      p->trapframe->epc = (uint64)p->handler;
+    }
+    release(&p->lock);
+  }
+
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
-
-  if (which_dev == 2 && p->period && p->handler) {
-    acquire(&p->lock);
-    p->remaining--;
-    release(&p->lock);
-    if (!p->remaining) {
-       
-      acquire(&p->lock);
-      p->remaining = p->period;
-      release(&p->lock);
-    }
-  }   
 
   usertrapret();
 }
