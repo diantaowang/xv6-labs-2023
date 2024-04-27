@@ -214,7 +214,10 @@ devintr()
     w_sip(r_sip() & ~2);
 
     return 2;
-  } else {
+  } else if(scause == 0x000000000000000f){
+    // store/AMO page fault
+    return uvmcow(); 
+  } else{
     return 0;
   }
 }

@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -315,27 +317,60 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  //char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
+
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    if(flags & PTE_W) {
+      flags ^= PTE_W;
+      flags |= PTE_C;
+      *pte = (pa >> 2) | flags;
+    }
+
+    inckmemref(pa);
+
+    if(mappages(new, i, PGSIZE, pa, flags) != 0) {
+      goto err;
+    }
+    /*if((mem = kalloc()) == 0)
       goto err;
     memmove(mem, (char*)pa, PGSIZE);
     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
       goto err;
-    }
+    }*/
   }
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  for(; i >= 0; i -= PGSIZE) {
+    if((pte = walk(old, i, 0)) == 0)
+      panic("uvmcopy: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("uvmcopy: page not present");
+
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    deckmemref(pa);
+
+    if (getkmemref(pa) == 1 && (flags & PTE_C) && !(flags & PTE_W)) {
+      flags ^= PTE_C;
+      flags |= PTE_W;
+      *pte = (pa >> 2) | flags;
+    }
+    // for check
+    if (getkmemref(pa) <= 0)
+      panic("uvmcopy: kmemref error");
+    if ((flags & PTE_C) && (flags & PTE_W))
+      panic("uvmcopy: pte flags error");
+  }
+  //uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
 }
 
@@ -448,4 +483,45 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// return 0 if success,
+// -1, if failed. 
+int uvmcow() {
+  char *mem;
+  uint64 stval, pa;
+  struct proc *p;
+  pte_t *pte;
+  uint flags;
+  
+  p = myproc();
+  stval = r_stval();
+  pte = walk(p->pagetable, stval, 0);
+  pa = PTE2PA(*pte);
+  flags = PTE_FLAGS(*pte);
+
+  if ((flags & PTE_C) == 0) {
+    panic("uvmcow: pte not in cow");
+  }
+  if ((flags & PTE_W) != 0) {
+    panic("uvmcow: pte owns write premission");
+  }
+
+  flags ^= PTE_C;
+  flags |= PTE_W;
+
+  if (getkmemref(pa) == 1) {
+    *pte = (pa >> 2) | flags;
+    return 0;
+  }
+   
+  mem = kalloc();
+  if (mem == 0) {
+    // TODO: how to kill this process?
+    return kill(p->pid);
+  }
+  memmove(mem, (void *)pa, PGSIZE);
+  *pte = PA2PTE(mem) | flags;
+  kfree((void *)pa);
+  return 0;
 }
