@@ -216,7 +216,8 @@ devintr()
     return 2;
   } else if(scause == 0x000000000000000f){
     // store/AMO page fault
-    return uvmcow(); 
+    if(uvmcow() == -1) return -1;
+    return 3;
   } else{
     return 0;
   }

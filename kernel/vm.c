@@ -317,6 +317,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
+  int refcnt;
   //char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
@@ -349,23 +350,23 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   return 0;
 
  err:
-  for(; i >= 0; i -= PGSIZE) {
-    if((pte = walk(old, i, 0)) == 0)
+  for (; i >= 0; i -= PGSIZE) {
+    if ((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
+    if ((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
 
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    deckmemref(pa);
+    refcnt = deckmemref(pa);
 
-    if (getkmemref(pa) == 1 && (flags & PTE_C) && !(flags & PTE_W)) {
+    if (refcnt == 1 && (flags & PTE_C) && !(flags & PTE_W)) {
       flags ^= PTE_C;
       flags |= PTE_W;
       *pte = (pa >> 2) | flags;
     }
     // for check
-    if (getkmemref(pa) <= 0)
+    if (refcnt <= 0)
       panic("uvmcopy: kmemref error");
     if ((flags & PTE_C) && (flags & PTE_W))
       panic("uvmcopy: pte flags error");
@@ -402,8 +403,12 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
       return -1;
     pte = walk(pagetable, va0, 0);
     if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
-       (*pte & PTE_W) == 0)
+       ((*pte & PTE_W) == 0 && (*pte & PTE_C) == 0))
       return -1;
+    if(*pte & PTE_C) {
+      if(uvmcow()) return -1;
+      pte = walk(pagetable, va0, 0);
+    }
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)

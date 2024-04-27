@@ -63,8 +63,8 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
-void            inckmemref(uint64);
-void            deckmemref(uint64);
+int             inckmemref(uint64);
+int             deckmemref(uint64);
 int             getkmemref(uint64 pa);
 
 // log.c

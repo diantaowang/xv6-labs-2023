@@ -43,21 +43,29 @@ freerange(void *pa_start, void *pa_end)
     kfree(p);
 }
 
-void inckmemref(uint64 pa) {
+int inckmemref(uint64 pa) {
+  int count;
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("inckmemref");
-  acquire(&kmem.lock);  
-  ++kmemref[PGIDX(pa)];
+  acquire(&kmem.lock);
+  count = kmemref[PGIDX(pa)];
+  ++count;
+  kmemref[PGIDX(pa)] = count;
   release(&kmem.lock);
+  return count;
 }
 
-void deckmemref(uint64 pa)
+int deckmemref(uint64 pa)
 {
+  int count;
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("inckmemref");
   acquire(&kmem.lock);  
-  --kmemref[PGIDX(pa)];
+  count = kmemref[PGIDX(pa)];
+  --count;
+  kmemref[PGIDX(pa)] = count;
   release(&kmem.lock);
+  return count;
 }
 
 int getkmemref(uint64 pa) {
@@ -74,11 +82,12 @@ void
 kfree(void *pa)
 {
   struct run *r;
+  int refcnt;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  deckmemref((uint64) pa);
+  /*deckmemref((uint64) pa);
 
   if (kmemref[PGIDX((uint64) pa)] == 0) {
     // Fill with junk to catch dangling refs.
@@ -90,7 +99,20 @@ kfree(void *pa)
     r->next = kmem.freelist;
     kmem.freelist = r;
     release(&kmem.lock);
+  }*/
+
+  acquire(&kmem.lock);
+  refcnt = kmemref[PGIDX((uint64) pa)];
+  --refcnt;
+  kmemref[PGIDX((uint64) pa)] = refcnt;
+  if (refcnt == 0) {
+    // Fill with junk to catch dangling refs.
+    memset(pa, 1, PGSIZE);
+    r = (struct run*)pa;
+    r->next = kmem.freelist;
+    kmem.freelist = r;
   }
+  release(&kmem.lock);
 }
 
 // Allocate one 4096-byte page of physical memory.

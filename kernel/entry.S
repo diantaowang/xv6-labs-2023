@@ -1,4 +1,4 @@
-        # qemu -kernel loads the kernel at 0x80000000
+         # qemu -kernel loads the kernel at 0x80000000
         # and causes each hart (i.e. CPU) to jump there.
         # kernel.ld causes the following code to
         # be placed at 0x80000000.
