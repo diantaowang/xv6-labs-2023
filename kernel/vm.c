@@ -520,6 +520,11 @@ int uvmcow(uint64 va) {
   flags ^= PTE_C;
   flags |= PTE_W;
 
+  // When the parent and child processes execute copyout()
+  // concurrently, the reference count of the same physical
+  // memory block obtained by both may be two. This does not
+  // affect the correctness of the program, it just adds an 
+  // extra memory copy.
   if (getkmemref(pa) == 1) {
     *pte = (pa >> 2) | flags;
     return 0;
