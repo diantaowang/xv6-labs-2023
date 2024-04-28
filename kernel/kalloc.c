@@ -71,6 +71,11 @@ int deckmemref(uint64 pa)
 int getkmemref(uint64 pa) {
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("inckmemref");
+  //int count;
+  //acquire(&kmem.lock);  
+  //count = kmemref[PGIDX(pa)];
+  //release(&kmem.lock);
+  //return count;
   return kmemref[PGIDX(pa)];
 }
 
@@ -86,20 +91,6 @@ kfree(void *pa)
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
-
-  /*deckmemref((uint64) pa);
-
-  if (kmemref[PGIDX((uint64) pa)] == 0) {
-    // Fill with junk to catch dangling refs.
-    memset(pa, 1, PGSIZE);
-
-    r = (struct run*)pa;
-
-    acquire(&kmem.lock);
-    r->next = kmem.freelist;
-    kmem.freelist = r;
-    release(&kmem.lock);
-  }*/
 
   acquire(&kmem.lock);
   refcnt = kmemref[PGIDX((uint64) pa)];
@@ -128,9 +119,8 @@ kalloc(void)
   if(r) {
     kmem.freelist = r->next;
     kmemref[PGIDX((uint64) r)] = 1;
+    memset((char*)r, 5, PGSIZE); // fill with junks
   }
   release(&kmem.lock);
-
-  memset((char*)r, 5, PGSIZE); // fill with junks
   return (void*)r;
 }

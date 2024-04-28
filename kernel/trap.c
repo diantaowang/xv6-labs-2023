@@ -178,6 +178,7 @@ int
 devintr()
 {
   uint64 scause = r_scause();
+  uint64 stval;
 
   if((scause & 0x8000000000000000L) &&
      (scause & 0xff) == 9){
@@ -216,7 +217,8 @@ devintr()
     return 2;
   } else if(scause == 0x000000000000000f){
     // store/AMO page fault
-    if(uvmcow() == -1) return -1;
+    stval = r_stval();
+    if(uvmcow(stval) == -1) return -1;
     return 3;
   } else{
     return 0;

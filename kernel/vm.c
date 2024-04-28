@@ -406,7 +406,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
        ((*pte & PTE_W) == 0 && (*pte & PTE_C) == 0))
       return -1;
     if(*pte & PTE_C) {
-      if(uvmcow()) return -1;
+      if(uvmcow(va0)) return -1;
       pte = walk(pagetable, va0, 0);
     }
     pa0 = PTE2PA(*pte);
@@ -492,24 +492,29 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 
 // return 0 if success,
 // -1, if failed. 
-int uvmcow() {
+int uvmcow(uint64 va) {
   char *mem;
-  uint64 stval, pa;
+  uint64 pa;
   struct proc *p;
   pte_t *pte;
   uint flags;
-  
+
   p = myproc();
-  stval = r_stval();
-  pte = walk(p->pagetable, stval, 0);
+  if (va >= MAXVA) {
+    return kill(p->pid);
+  }
+  
+  pte = walk(p->pagetable, va, 0);
   pa = PTE2PA(*pte);
   flags = PTE_FLAGS(*pte);
 
   if ((flags & PTE_C) == 0) {
-    panic("uvmcow: pte not in cow");
+    printf("uvmcow: pte flags not in PTE_C status\n");
+    return kill(p->pid);
   }
   if ((flags & PTE_W) != 0) {
-    panic("uvmcow: pte owns write premission");
+    printf("uvmcow: pte flags in PTE_W status\n");
+    return kill(p->pid);
   }
 
   flags ^= PTE_C;
@@ -522,7 +527,6 @@ int uvmcow() {
    
   mem = kalloc();
   if (mem == 0) {
-    // TODO: how to kill this process?
     return kill(p->pid);
   }
   memmove(mem, (void *)pa, PGSIZE);
