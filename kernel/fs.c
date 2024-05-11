@@ -210,6 +210,9 @@ ialloc(uint dev, short type)
       dip->type = type;
       log_write(bp);   // mark it allocated on the disk
       brelse(bp);
+      //struct inode *t = iget(dev, inum);
+      //printf("inum=%d, inode_ptr=%p\n", inum, t);
+      //return t;
       return iget(dev, inum);
     }
     brelse(bp);

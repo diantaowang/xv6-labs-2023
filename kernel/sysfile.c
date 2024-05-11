@@ -223,7 +223,7 @@ sys_unlink(void)
   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
     panic("unlink: writei");
   if(ip->type == T_DIR){
-    dp->nlink--;
+    dp->nlink--;  // Because the dir has .. which pointed to parent.
     iupdate(dp);
   }
   iunlockput(dp);
@@ -308,7 +308,8 @@ sys_open(void)
   int fd, omode;
   struct file *f;
   struct inode *ip;
-  int n;
+  int n, limit;
+  uint plain_dev, plain_inum;
 
   argint(1, &omode);
   if((n = argstr(0, path, MAXPATH)) < 0)
@@ -328,6 +329,36 @@ sys_open(void)
       return -1;
     }
     ilock(ip);
+    if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+      plain_dev = ip->dev;
+      plain_inum = ip->inum;
+      limit = 10;
+      while (ip->type == T_SYMLINK) {
+        if (readi(ip, 0, (uint64)path, 0, ip->size) != ip->size){
+          iunlockput(ip);
+          end_op();
+          panic("sys_open: readi error");
+        }
+        iunlockput(ip);
+        ip = namei(path);
+        --limit;
+        if (ip == 0) {
+          printf("sys_open: can't find file\n", path);
+          end_op();
+          return -1;
+        } else if (plain_dev == ip->dev && plain_inum == ip->inum) {
+          printf("sys_open: exist cycle\n", path);
+          end_op();
+          return -1;
+        } else if (limit == 0) {
+          printf("sys_open error: too long paths\n", path);
+          end_op();
+          return -1;
+        }
+        ilock(ip);
+      }
+    }
+
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -507,5 +538,21 @@ sys_pipe(void)
 uint64
 sys_symlink(void)
 {
-  return -1;
+  struct inode *ip;
+  char new[MAXPATH], old[MAXPATH];
+  if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+    return -1;
+  begin_op();
+  if ((ip = create(new, T_SYMLINK, 0, 0)) == 0) {
+    end_op();
+    return -1;
+  };
+  if (writei(ip, 0, (uint64)old, 0, sizeof(old)) != sizeof(old)){
+    iunlockput(ip);
+    end_op();
+    panic("sys_symlink: writei");
+  }
+  iunlockput(ip);
+  end_op();
+  return 0;
 }
