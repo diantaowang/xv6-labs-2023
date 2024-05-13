@@ -449,3 +449,15 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+uint64
+sys_mmap(void)
+{
+  return -1;
+}
+
+uint64
+sys_munmap(void)
+{
+  return -1;
+}
