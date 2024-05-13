@@ -3,8 +3,13 @@
 #include "memlayout.h"
 #include "elf.h"
 #include "riscv.h"
+#include "spinlock.h"
+#include "proc.h"
 #include "defs.h"
 #include "fs.h"
+#include "fcntl.h"
+#include "sleeplock.h"
+#include "file.h"
 
 /*
  * the kernel's page table.
@@ -453,6 +458,67 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 uint64
 sys_mmap(void)
 {
+  struct proc *p;
+  struct file *f;
+  struct vma  *vptr;
+  uint64 oldsz;
+  uint file_size;
+
+  uint64 addr;
+  size_t len;
+  int prot, flags, fd;
+  off_t offset;
+
+  argaddr(0, &addr);
+  argint(1, (int *)&len);
+  argint(2, &prot);
+  argint(3, (int *)&flags);
+  argint(4, &fd);
+  argint(5, (int *)&offset);
+
+  printf("addr=%p, len=%d, prot=%d, flags=%d, fd=%d, offset=%d\n",
+          addr, len, prot, flags, fd, offset);
+
+  if (addr != 0) {
+    printf("sys_mmap: addr != 0\n");
+    return -1;
+  }
+
+  p = myproc();
+
+  if ((f = p->ofile[fd]) == 0) {
+    printf("sys_mmap: file is not opened in current proc\n");
+    return -1;
+  }
+
+  // check prot
+  if (f->readable != (prot >> PROT_READ) ||
+      f->writable != (prot >> PROT_WRITE) ||
+      (prot >> PROT_EXEC)) {
+    printf("sys_mmap: umatched R/W/X permission\n");
+    return -1;
+  }
+
+  filedup(f);
+
+  /*oldsz = p->sz;
+  if (oldsz % PGSIZE) {
+    printf
+  }*/
+  printf("oldsz=%d\n", oldsz);
+
+  for (int i = 0; i < NVMA; ++i) {
+    if (p->vma[i].valid == 0) {
+      p->vma[i].addr = 0; //TODO
+    }
+  }  
+  //ilock(f->ip);
+  //len = f->ip-> size;
+  //iunlock(f->ip);
+
+  
+  
+
   return -1;
 }
 
