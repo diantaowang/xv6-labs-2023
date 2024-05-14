@@ -107,4 +107,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   struct vma vma[NVMA];
+  uint64 mmapbitmap[NMMAPPAGE/64];
 };

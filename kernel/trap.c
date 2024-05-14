@@ -178,6 +178,7 @@ int
 devintr()
 {
   uint64 scause = r_scause();
+  uint64 staval;
 
   if((scause & 0x8000000000000000L) &&
      (scause & 0xff) == 9){
@@ -214,6 +215,12 @@ devintr()
     w_sip(r_sip() & ~2);
 
     return 2;
+  } else if(scause == 0x000000000000000d ||
+            scause == 0x000000000000000f){
+    staval = r_stval();
+    if(uvmcoe(staval) == -1)
+      return -1;
+    return 3;
   } else {
     return 0;
   }

@@ -3,6 +3,6 @@ struct vma {
     unsigned long len;
     int prot;
     int flags;
-    int fd;
+    struct file *f;
     int valid;
 };
