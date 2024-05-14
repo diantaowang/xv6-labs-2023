@@ -502,7 +502,7 @@ alloc_freespace(uint size)
 int
 dealloc_freespace(uint64 base, uint size)
 {
-  printf("dealloc_freespace: %p, %d\n", base, size);
+  //printf("dealloc_freespace: %p, %d\n", base, size);
   uint64 m;
   int start, end;
   struct proc *p;
@@ -512,8 +512,9 @@ dealloc_freespace(uint64 base, uint size)
       base+size <= base) {
     printf("dealloc_freespace error\n");
   }
-  start = (base - MMAPBASE) % PGSIZE;
+  start = (base - MMAPBASE) / PGSIZE;
   end = start + size / PGSIZE;
+  //printf("start=%d, end=%d\n", start, end);
   while (start < end) {
     m = 1 << (start % 64);
     if ((p->mmapbitmap[start/64] & m) == 0) {
@@ -532,7 +533,7 @@ sys_mmap(void)
   struct proc *p;
   struct file *f;
   uint64 mmap_addr;
-  struct vma  *vmaptr;
+  struct vma  *vp;
   //uint file_size;
 
   uint64 addr;
@@ -563,12 +564,6 @@ sys_mmap(void)
 
   // check prot
   //printf("rd=%d, wr=%d\n", f->readable, f->writable);
-  /*if (f->readable != (prot & PROT_READ ) ||(prot & PROT_EXEC) ||
-      f->writable != ((prot & PROT_WRITE) >> 1) && 
-     ) {
-    printf("sys_mmap: umatched R/W/X permission\n");
-    return -1;
-  }*/
   if (!f->writable && (prot&PROT_WRITE) && !(flags&MAP_PRIVATE)) {
     printf("sys_mmap: umatched R/W/X permission\n");
     return -1;
@@ -583,29 +578,34 @@ sys_mmap(void)
   }
   printf("mmap_addr=%p\n", mmap_addr);
 
-  vmaptr = 0;
+  vp = 0;
   for (int i = 0; i < NVMA; ++i) {
     if (p->vma[i].valid == 0) {
-      vmaptr = &p->vma[i];
+      vp = &p->vma[i];
       break;
     }
   }
-  if (vmaptr == 0) {
+  if (vp == 0) {
     printf("mmap: no empty vma\n");
     dealloc_freespace(mmap_addr, len);
     goto bad;
   }
-  vmaptr->addr = mmap_addr;
-  vmaptr->len = len;
-  vmaptr->prot = prot;
-  vmaptr->flags = flags;
-  vmaptr->f = f;
-  vmaptr->valid = 1;
+  vp->addr = mmap_addr;
+  vp->len = len;
+  vp->prot = prot;
+  vp->flags = flags;
+  vp->f = f;
+  vp->valid = 1;
+
+  printf("after mmap (addr=%p, len=%d): ", addr, len);
+  for (int i = 0; i < 4; ++i) {
+    printf("%p ", p->mmapbitmap[i]);
+  }
+  printf("\n");
 
   return mmap_addr;
 
 bad:
-  // TODO
   fileclose(f);
   return -1;
 }
@@ -614,19 +614,13 @@ void
 free_vma(struct proc *p, struct vma *vp)
 {
   uint64 addr, m, mmi;
-  /*for (int i = 0; i < 4; ++i) {
-    printf("%p, ", p->mmapbitmap[i]);
-  }
-  printf("\n");*/
-
   int clean = 1;
-  for (addr = 0; addr < vp->len; addr += PGSIZE) {
-    addr += vp->addr;
+  for (addr = vp->addr; addr < vp->addr + vp->len; addr += PGSIZE) {
     if (addr < MMAPBASE || addr >= TRAPFRAME)
       panic("free_vma: range");
     mmi = (addr - MMAPBASE) / PGSIZE;
     m = 1 << (mmi % 64);
-    if ((p->mmapbitmap[m/64] & m) != 0) {
+    if ((p->mmapbitmap[mmi/64] & m) != 0) {
       clean = 0;
       break;
     }
@@ -644,7 +638,7 @@ sys_munmap(void)
   struct inode *ip;
   struct vma  *vp;
 
-  uint64 addr;
+  uint64 addr, va;
   size_t len, writelen, off;
 
   argaddr(0, &addr);
@@ -658,6 +652,12 @@ sys_munmap(void)
   }
 
   p = myproc();
+  /*printf("sys_munmap: addr=%p, len=%d\n", addr, len);
+  for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
+    if (vp->valid)
+      printf("  addr=%p, len=%d\n", vp->addr, vp->len);
+  }*/
+
   vp = 0;
   for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
     if (vp->valid && addr >= vp->addr &&
@@ -666,7 +666,7 @@ sys_munmap(void)
     }
   }
 
-  if (vp == 0) {
+  if (vp == &p->vma[NVMA]) {
     printf("sys_munmap: user addr %p not be mapped\n", addr);
     return -1;
   }
@@ -678,8 +678,9 @@ sys_munmap(void)
   if (vp->flags & MAP_SHARED) {
     begin_op();
     ilock(ip);
-    for (off = 0; off < len && off < ip->size; off += PGSIZE) {
+    for (off = addr - vp->addr; off<len && off < ip->size; off += PGSIZE) {
       writelen = min(PGSIZE, ip->size - off);
+      //printf("writelen=%d\n", writelen);
       if (writei(ip, 1, addr + off, off, writelen) != writelen) {
         printf("sys_munmap: writei\n");
         goto bad;
@@ -689,8 +690,23 @@ sys_munmap(void)
     end_op();
   }
 
-  uvmunmap(p->pagetable, addr, len/PGSIZE, 1);
+  /*printf("after munmap (addr=%p, len=%d): ", addr, len);
+  for (int i = 0; i < 4; ++i) {
+    printf("%p ", p->mmapbitmap[i]);
+  }
+  printf("\n");*/
+
+  for (va = addr; va < addr + len; va+= PGSIZE) {
+    if (walk(p->pagetable, va, 0))
+      uvmunmap(p->pagetable, va, 1, 1);
+  }
   free_vma(p, vp);
+
+  printf("after munmap (addr=%p, len=%d): ", addr, len);
+  for (int i = 0; i < 4; ++i) {
+    printf("%p ", p->mmapbitmap[i]);
+  }
+  printf("\n");
 
   return 0;
 
@@ -722,7 +738,6 @@ uvmcoe(uint64 va)
   for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
     if (vp->valid && va >= vp->addr &&
         va < vp->addr + vp->len) {
-      //printf("va=%p, vp->addr=%p, vp->len=%p, vp->end=%p\n", va, vp->addr, vp->len, vp->addr + vp->len);
       break;
     }
   }
@@ -749,16 +764,11 @@ uvmcoe(uint64 va)
   
   ip = vp->f->ip;
   begin_op();
-  /*if (ip == 0)
-    printf("error: inode=0\n");
-  else
-    printf("inode=%p, ref=%d\n", ip, ip->ref);*/
   ilock(ip);
   off = va - vp->addr;
-  if (off >= ip->size) copylen = 0;
+  if (off >= ip->size) 
+    copylen = 0;
   copylen = off >= ip->size ? 0 : min(ip->size - off, PGSIZE);
-  //copylen = min(min(PGSIZE, vp->addr + vp->len - va),
-  //              ip->size - (va - vp->addr));              
   printf("off=%p, copylen=%d\n", off, copylen);
   readlen = readi(ip, 0, (uint64)mem, off, copylen);
   if (readlen != copylen) {  
@@ -774,8 +784,7 @@ uvmcoe(uint64 va)
 
   flags = PTE_V | PTE_U | PTE_R;
   if (vp->prot & PROT_WRITE) flags |= PTE_W;
-  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, flags)
-      == 1) {
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, flags) == 1) {
     printf("uvmcoe: mappages error\n");
     goto bad;
   }
