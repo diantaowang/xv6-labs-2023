@@ -717,7 +717,8 @@ bad:
 }
 
 // return 0 if success,
-// -1, if failed. 
+// -1, if failed,
+// -2, if not mmap page fault.
 int 
 uvmcoe(uint64 va)
 {
@@ -741,10 +742,8 @@ uvmcoe(uint64 va)
       break;
     }
   }
-  if (vp == 0) {
-    printf("uvmcoe: user addr %p not been mapped\n", va);
-    kill(p->pid);
-    return -1;
+  if (vp == &p->vma[NVMA]) {
+    return -2;
   }
   //printf("vp->addr=%p, vp->len=%d\n", vp->addr, vp->len);
 

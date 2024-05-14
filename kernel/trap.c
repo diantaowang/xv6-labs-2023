@@ -220,7 +220,10 @@ devintr()
     staval = r_stval();
     if(uvmcoe(staval) == -1)
       return -1;
-    return 3;
+    else if(uvmcoe(staval) == -2)
+      return 0;
+    else
+      return 3;
   } else {
     return 0;
   }
