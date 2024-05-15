@@ -308,6 +308,13 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+  memmove(np->vma, p->vma, sizeof(p->vma));
+  memmove(np->mmapbitmap, p->mmapbitmap, sizeof(p->mmapbitmap));
+  for (i = 0; i < NVMA; i++) {
+    if (p->vma[i].valid)
+      filedup(p->vma[i].f);
+  }
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
@@ -350,6 +357,8 @@ exit(int status)
 
   if(p == initproc)
     panic("init exiting");
+
+  free_allvma(p);
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){

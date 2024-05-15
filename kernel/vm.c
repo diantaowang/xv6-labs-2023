@@ -502,7 +502,6 @@ alloc_freespace(uint size)
 int
 dealloc_freespace(uint64 base, uint size)
 {
-  //printf("dealloc_freespace: %p, %d\n", base, size);
   uint64 m;
   int start, end;
   struct proc *p;
@@ -514,7 +513,6 @@ dealloc_freespace(uint64 base, uint size)
   }
   start = (base - MMAPBASE) / PGSIZE;
   end = start + size / PGSIZE;
-  //printf("start=%d, end=%d\n", start, end);
   while (start < end) {
     m = 1 << (start % 64);
     if ((p->mmapbitmap[start/64] & m) == 0) {
@@ -548,7 +546,8 @@ sys_mmap(void)
   argint(4, &fd);
   argaddr(5, (uint64*)&offset);
 
-  printf("addr=%p, len=%p, prot=%d, flags=%d, fd=%d, offset=%d\n", addr, len, prot, flags, fd, offset);
+  // For debug
+  //printf("sys_mmap: addr=%p, len=%d, prot=%d, flags=%d, fd=%d, offset=%d\n", addr, len, prot, flags, fd, offset);
 
   if (addr != 0) {
     printf("sys_mmap: addr != 0\n");
@@ -563,11 +562,22 @@ sys_mmap(void)
   }
 
   // check prot
-  //printf("rd=%d, wr=%d\n", f->readable, f->writable);
   if (!f->writable && (prot&PROT_WRITE) && !(flags&MAP_PRIVATE)) {
     printf("sys_mmap: umatched R/W/X permission\n");
     return -1;
   }
+
+  // For debug
+  /*printf("before mmap:\n");
+  for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
+    if (vp->valid)
+      printf("  (%p, %d)", vp->addr, vp->len);
+  }
+  printf("\n");
+  for (int i = 0; i < 4; ++i) {
+    printf("  %p", p->mmapbitmap[i]);
+  }
+  printf("\n");*/
   
   filedup(f);
 
@@ -576,16 +586,11 @@ sys_mmap(void)
     printf("sys_mmap: no enough space for mmap\n");
     goto bad;
   }
-  printf("mmap_addr=%p\n", mmap_addr);
 
-  vp = 0;
-  for (int i = 0; i < NVMA; ++i) {
-    if (p->vma[i].valid == 0) {
-      vp = &p->vma[i];
-      break;
-    }
+  for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
+    if (vp->valid == 0) break;
   }
-  if (vp == 0) {
+  if (vp == &p->vma[NVMA]) {
     printf("mmap: no empty vma\n");
     dealloc_freespace(mmap_addr, len);
     goto bad;
@@ -597,11 +602,17 @@ sys_mmap(void)
   vp->f = f;
   vp->valid = 1;
 
-  printf("after mmap (addr=%p, len=%d): ", addr, len);
-  for (int i = 0; i < 4; ++i) {
-    printf("%p ", p->mmapbitmap[i]);
+  // For debug
+  /*printf("after mmap:\n");
+  for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
+    if (vp->valid)
+      printf("  (%p, %d)", vp->addr, vp->len);
   }
   printf("\n");
+  for (int i = 0; i < 4; ++i) {
+    printf("  %p", p->mmapbitmap[i]);
+  }
+  printf("\n");*/
 
   return mmap_addr;
 
@@ -611,24 +622,33 @@ bad:
 }
 
 void
-free_vma(struct proc *p, struct vma *vp)
+free_vma(struct proc *p, struct vma *vp, int free)
 {
   uint64 addr, m, mmi;
   int clean = 1;
   for (addr = vp->addr; addr < vp->addr + vp->len; addr += PGSIZE) {
-    if (addr < MMAPBASE || addr >= TRAPFRAME)
-      panic("free_vma: range");
     mmi = (addr - MMAPBASE) / PGSIZE;
     m = 1 << (mmi % 64);
-    if ((p->mmapbitmap[mmi/64] & m) != 0) {
+    if (free == 0 && (p->mmapbitmap[mmi/64] & m) != 0) {
       clean = 0;
       break;
+    } else if ((p->mmapbitmap[mmi/64] & m) != 0) {
+      if (walk(p->pagetable, addr, 0))
+        uvmunmap(p->pagetable, addr, 1, 1);
+      p->mmapbitmap[mmi/64] &= ~m;
     }
   }
   if (clean) {
     vp->valid = 0;
     fileclose(vp->f);
   }
+}
+
+void free_allvma(struct proc *p)
+{
+  struct vma *vp;
+  for (vp = p->vma; vp < &p->vma[NVMA]; ++vp)
+    if (vp->valid) free_vma(p, vp, 1);
 }
 
 uint64
@@ -652,13 +672,19 @@ sys_munmap(void)
   }
 
   p = myproc();
+  // For debug
   /*printf("sys_munmap: addr=%p, len=%d\n", addr, len);
+  printf("before munmap:\n");
   for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
     if (vp->valid)
-      printf("  addr=%p, len=%d\n", vp->addr, vp->len);
-  }*/
+      printf("  (%p, %d)", vp->addr, vp->len);
+  }
+  printf("\n");
+  for (int i = 0; i < 4; ++i) {
+    printf("  %p ", p->mmapbitmap[i]);
+  }
+  printf("\n");*/
 
-  vp = 0;
   for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
     if (vp->valid && addr >= vp->addr &&
         addr + len <= vp->addr + vp->len) {
@@ -690,23 +716,23 @@ sys_munmap(void)
     end_op();
   }
 
-  /*printf("after munmap (addr=%p, len=%d): ", addr, len);
-  for (int i = 0; i < 4; ++i) {
-    printf("%p ", p->mmapbitmap[i]);
-  }
-  printf("\n");*/
-
   for (va = addr; va < addr + len; va+= PGSIZE) {
     if (walk(p->pagetable, va, 0))
       uvmunmap(p->pagetable, va, 1, 1);
   }
-  free_vma(p, vp);
+  free_vma(p, vp, 0);
 
-  printf("after munmap (addr=%p, len=%d): ", addr, len);
-  for (int i = 0; i < 4; ++i) {
-    printf("%p ", p->mmapbitmap[i]);
+  // For debug
+  /*printf("after munmap:\n");
+  for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
+    if (vp->valid)
+      printf("  (%p, %d)", vp->addr, vp->len);
   }
   printf("\n");
+  for (int i = 0; i < 4; ++i) {
+    printf("  %p", p->mmapbitmap[i]);
+  }
+  printf("\n");*/
 
   return 0;
 
@@ -730,12 +756,9 @@ uvmcoe(uint64 va)
   char *mem;
   uint flags;
 
-  printf("va=%p\n", va);
-
   p = myproc();
   va = PGROUNDDOWN(va);
 
-  vp = 0;
   for (vp = p->vma; vp < &p->vma[NVMA]; ++vp) {
     if (vp->valid && va >= vp->addr &&
         va < vp->addr + vp->len) {
@@ -745,8 +768,7 @@ uvmcoe(uint64 va)
   if (vp == &p->vma[NVMA]) {
     return -2;
   }
-  //printf("vp->addr=%p, vp->len=%d\n", vp->addr, vp->len);
-
+  
   mmi = (va - MMAPBASE) % PGSIZE;
   m = 1 << (mmi % 64);
   if ((p->mmapbitmap[mmi/64] & m) == 0) {
@@ -768,7 +790,7 @@ uvmcoe(uint64 va)
   if (off >= ip->size) 
     copylen = 0;
   copylen = off >= ip->size ? 0 : min(ip->size - off, PGSIZE);
-  printf("off=%p, copylen=%d\n", off, copylen);
+  //printf("off=%p, copylen=%d\n", off, copylen);
   readlen = readi(ip, 0, (uint64)mem, off, copylen);
   if (readlen != copylen) {  
     printf("uvmcoe: readi error, readlen=%d\n", readlen);
@@ -783,12 +805,10 @@ uvmcoe(uint64 va)
 
   flags = PTE_V | PTE_U | PTE_R;
   if (vp->prot & PROT_WRITE) flags |= PTE_W;
-  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, flags) == 1) {
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, flags) == -1) {
     printf("uvmcoe: mappages error\n");
     goto bad;
   }
-
-  p->mmapbitmap[mmi/64] |= m;
 
   return 0;
 

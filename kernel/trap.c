@@ -179,6 +179,7 @@ devintr()
 {
   uint64 scause = r_scause();
   uint64 staval;
+  int retval;
 
   if((scause & 0x8000000000000000L) &&
      (scause & 0xff) == 9){
@@ -218,12 +219,8 @@ devintr()
   } else if(scause == 0x000000000000000d ||
             scause == 0x000000000000000f){
     staval = r_stval();
-    if(uvmcoe(staval) == -1)
-      return -1;
-    else if(uvmcoe(staval) == -2)
-      return 0;
-    else
-      return 3;
+    retval = uvmcoe(staval);
+    return retval == -1 ? -1 : retval == -2 ? 0 : 3;
   } else {
     return 0;
   }
